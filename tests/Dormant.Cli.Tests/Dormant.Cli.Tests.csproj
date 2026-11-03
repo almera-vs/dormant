@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Dormant.Cli\Dormant.Cli.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Dormant.Store.Tests\SnapshotBuilder.cs" Link="Shared\SnapshotBuilder.cs" />
+  </ItemGroup>
+
+</Project>

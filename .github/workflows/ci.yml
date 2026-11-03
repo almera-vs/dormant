@@ -1,0 +1,196 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  build-test:
+    name: build and test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    env:
+      # Linux runners run the SQL Server container suites and must never skip them. Windows runners only run Windows
+      # containers, so the Linux SQL Server images cannot start there and those suites are skipped explicitly.
+      DORMANT_CONTAINERS: ${{ matrix.os == 'ubuntu-latest' && 'require' || 'skip' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - run: dotnet restore
+      - run: dotnet build --no-restore -c Release
+      - run: dotnet test --no-build -c Release --output Detailed
+
+  publish:
+    name: publish (${{ matrix.rid }})
+    needs: build-test
+    strategy:
+      matrix:
+        rid: [win-x64, linux-x64, linux-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - run: dotnet publish src/Dormant.Cli -c Release -r ${{ matrix.rid }} -o out/${{ matrix.rid }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dormant-${{ matrix.rid }}
+          path: out/${{ matrix.rid }}
+          if-no-files-found: error
+
+  # The Windows Service as an operator installs it: deploy/windows/install.ps1, then start, check, remove.
+  service-windows:
+    name: windows service
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - run: dotnet publish src/Dormant.Cli -c Release -r win-x64 -o out
+      - name: Install, run and remove the service
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          .\deploy\windows\install.ps1 -Executable out\dormant.exe
+          $root = Join-Path $env:ProgramData 'Dormant'
+          $config = Join-Path $root 'dormant.yaml'
+          if (-not (Test-Path $config)) { throw 'The installer did not write a configuration.' }
+          $acl = Get-Acl $root
+          $acl.Access | Format-Table IdentityReference, FileSystemRights, IsInherited -AutoSize
+          if ($acl.Access | Where-Object { $_.IdentityReference.Value -in @('BUILTIN\Users', 'Everyone', 'NT AUTHORITY\Authenticated Users') }) { throw 'Users can open the Dormant directory.' }
+          if (-not ($acl.Access | Where-Object { $_.IdentityReference.Value -eq 'NT SERVICE\Dormant' })) { throw 'The service account has no access.' }
+
+          # The example configuration names an environment variable that is not set: every collection fails, is
+          # recorded in the store and logged, and the service keeps running.
+          Start-Service Dormant
+          Start-Sleep -Seconds 20
+          if ((Get-Service Dormant).Status -ne 'Running') { throw 'The service is not running.' }
+          if (-not (Test-Path (Join-Path $root 'dormant.db'))) { throw 'The service did not write its store.' }
+          & (Join-Path $env:ProgramFiles 'Dormant\dormant.exe') status -c $config
+          $events = Get-WinEvent -FilterHashtable @{ LogName = 'Application'; ProviderName = 'Dormant' } -MaxEvents 10
+          if (-not $events) { throw 'Nothing was written to the event log.' }
+          $events | Format-List TimeCreated, LevelDisplayName, Message
+
+          .\deploy\windows\uninstall.ps1
+          if (Get-Service Dormant -ErrorAction SilentlyContinue) { throw 'The service is still installed.' }
+          if (-not (Test-Path $config)) { throw 'Uninstalling removed the configuration.' }
+
+  # The systemd unit as an operator installs it, collecting from a real SQL Server as the least-privilege login.
+  service-linux:
+    name: systemd service
+    runs-on: ubuntu-latest
+    env:
+      SA_PASSWORD: Ci-only-Passw0rd
+      DORMANT_PASSWORD: Ci-only-Dormant-1
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - run: dotnet publish src/Dormant.Cli -c Release -r linux-x64 -o out
+      - name: Start SQL Server with a least-privilege login
+        run: |
+          docker run -d --name sql -e ACCEPT_EULA=Y -e "MSSQL_SA_PASSWORD=$SA_PASSWORD" -p 1433:1433 mcr.microsoft.com/mssql/server:2022-latest
+          sqlcmd() { docker exec sql /opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P "$SA_PASSWORD" -b "$@"; }
+          for i in $(seq 1 60); do sqlcmd -Q 'SELECT 1' >/dev/null 2>&1 && break; sleep 2; done
+          sqlcmd -Q "CREATE LOGIN dormant WITH PASSWORD = N'$DORMANT_PASSWORD', CHECK_POLICY = OFF; CREATE DATABASE Shop;"
+          sqlcmd -d Shop -Q "CREATE TABLE dbo.Orders (Id int NOT NULL PRIMARY KEY); INSERT dbo.Orders VALUES (1);"
+          docker cp deploy/sql/sqlserver-2022-and-later.sql sql:/tmp/grants.sql
+          sqlcmd -i /tmp/grants.sql
+      - name: Install, run and remove the service
+        run: |
+          sudo deploy/systemd/install.sh out/dormant
+          echo "DORMANT_ERP_PROD=\"Server=localhost,1433;User ID=dormant;Password=$DORMANT_PASSWORD;TrustServerCertificate=true\"" | sudo tee /etc/dormant/dormant.env >/dev/null
+          sudo systemd-analyze verify /etc/systemd/system/dormant.service
+          sudo systemctl start dormant
+          sleep 20
+          systemctl is-active dormant
+          sudo journalctl -u dormant --no-pager | tail -n 20
+          sudo stat -c '%a %U:%G %n' /etc/dormant /etc/dormant/dormant.yaml /etc/dormant/dormant.env /var/lib/dormant /var/lib/dormant/dormant.db
+          test "$(sudo stat -c '%a %U' /var/lib/dormant)" = "700 dormant"
+          test "$(sudo stat -c '%a %U' /var/lib/dormant/dormant.db)" = "600 dormant"
+          sudo /usr/local/bin/dormant status -c /etc/dormant/dormant.yaml | tee status.txt
+          grep -q 'last collection .*: ok' status.txt
+          sudo deploy/systemd/uninstall.sh
+          ! systemctl is-active dormant
+      - if: failure()
+        run: |
+          sudo systemctl status dormant --no-pager || true
+          sudo journalctl -u dormant --no-pager -n 100 || true
+
+  # The container image, and the docker-compose demo: after 200 synthetic days and a real workload, Dormant finds what
+  # was planted and nothing else.
+  container:
+    name: container and demo
+    runs-on: ubuntu-latest
+    env:
+      COMPOSE_FILE: deploy/demo/docker-compose.yml
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - run: docker build -f deploy/docker/Dockerfile -t dormant:ci .
+      - run: docker run --rm dormant:ci version
+      - name: Run the demo
+        run: |
+          docker compose up -d --build
+          for i in $(seq 1 120); do
+            state="$(docker compose ps -a --format '{{.State}} {{.ExitCode}}' setup)"
+            case "$state" in
+              "exited 0") break ;;
+              exited*) docker compose logs setup; exit 1 ;;
+            esac
+            sleep 5
+          done
+          docker compose logs setup
+          # Let the workload run and Dormant collect for real.
+          sleep 60
+          docker compose exec -T dormant dormant status -c /etc/dormant/demo.yaml
+          docker compose exec -T dormant dormant report -c /etc/dormant/demo.yaml --out /var/lib/dormant/reports/demo.html
+          docker compose cp dormant:/var/lib/dormant/reports/demo.html demo-report.html
+          docker compose exec -T dormant dormant export -c /etc/dormant/demo.yaml --format json --level partition > partitions.json
+          docker compose exec -T dormant dormant export -c /etc/dormant/demo.yaml --format json --level index > indexes.json
+      - name: Check that the planted findings, and nothing else, are found
+        run: |
+          jq -r '.rows[] | "\(.class)\t\(.table)\t\(.partition)"' partitions.json
+          jq -e '.contains_synthetic_data' partitions.json
+          jq -e '[.rows[] | select(.class == "dormant")] | length == 19' partitions.json
+          jq -e '[.rows[] | select(.class == "cold")] | length == 2' partitions.json
+          jq -e '[.rows[] | select(.class == "warm")] | length == 4' partitions.json
+          jq -e '[.rows[] | select(.class == "hot")] | length == 5' partitions.json
+          jq -e '[.rows[] | select(.class == "insufficient_history")] | length == 0' partitions.json
+          jq -e '[.rows[] | select(.drop_statement != null) | .index] == ["IX_Orders_Status"]' indexes.json
+          grep -q 'Contains synthetic demo data' demo-report.html
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: demo-report
+          path: demo-report.html
+          if-no-files-found: ignore
+      - if: always()
+        run: |
+          docker compose logs --no-color | tail -n 100
+          docker compose down -v

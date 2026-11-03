@@ -1,0 +1,17 @@
+bin/
+obj/
+artifacts/
+TestResults/
+*.user
+*.suo
+.vs/
+.idea/
+.vscode/
+*.swp
+
+# Local Dormant state and configs that may reference real servers
+*.db
+*.db-shm
+*.db-wal
+/dormant.yaml
+/reports/

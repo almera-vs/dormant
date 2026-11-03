@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>dormant-demo</AssemblyName>
+    <RootNamespace>Dormant.Demo</RootNamespace>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>true</SelfContained>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <PublishDocumentationFile>false</PublishDocumentationFile>
+    <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Dormant.Core\Dormant.Core.csproj" />
+    <ProjectReference Include="..\..\src\Dormant.Collectors\Dormant.Collectors.csproj" />
+    <ProjectReference Include="..\..\src\Dormant.Store\Dormant.Store.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The demo grants the dormant login exactly what the shipped script grants. -->
+    <EmbeddedResource Include="..\..\deploy\sql\sqlserver-2022-and-later.sql" LogicalName="Dormant.Demo.grants.sql" Link="grants.sql" />
+  </ItemGroup>
+
+</Project>

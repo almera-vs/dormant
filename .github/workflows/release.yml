@@ -1,0 +1,144 @@
+name: release
+
+# Push a version tag to release: v1.2.3, or v1.2.3-rc.1 for a pre-release (decision D-066).
+#   git tag v0.1.0 && git push origin v0.1.0
+
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+jobs:
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    env:
+      DORMANT_CONTAINERS: require
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - run: dotnet restore
+      - run: dotnet build --no-restore -c Release
+      - run: dotnet test --no-build -c Release
+
+  binaries:
+    name: binaries (${{ matrix.rid }})
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rid: [win-x64, linux-x64, linux-arm64]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - name: Publish and package
+        env:
+          RID: ${{ matrix.rid }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          dotnet publish src/Dormant.Cli -c Release -r "$RID" -p:Version="$version" -o "out/$RID"
+          package="dormant-$version-$RID"
+          mkdir -p "pkg/$package"
+          cp out/$RID/dormant* "pkg/$package/"
+          cp LICENSE README.md "pkg/$package/"
+          mkdir -p "pkg/$package/deploy"
+          cp -r deploy/sql "pkg/$package/deploy/"
+          if [ "$RID" = "win-x64" ]; then
+            cp -r deploy/windows "pkg/$package/deploy/"
+            (cd pkg && zip -qr "$package.zip" "$package")
+          else
+            cp -r deploy/systemd "pkg/$package/deploy/"
+            tar -C pkg -czf "pkg/$package.tar.gz" "$package"
+          fi
+          ls -la pkg
+      - uses: actions/upload-artifact@v7
+        with:
+          name: package-${{ matrix.rid }}
+          path: |
+            pkg/*.zip
+            pkg/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: GitHub release
+    needs: binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          pattern: package-*
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --generate-notes --title "Dormant ${GITHUB_REF_NAME#v}" $prerelease
+
+  image:
+    name: container image
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/dormant
+          # The version always; 'latest' only for a full release, never a pre-release.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ !contains(github.ref_name, '-') }}
+          flavor: |
+            latest=${{ !contains(github.ref_name, '-') }}
+          labels: |
+            org.opencontainers.image.title=Dormant
+            org.opencontainers.image.description=Read-only, restart-proof usage history for SQL Server
+            org.opencontainers.image.licenses=MIT
+      - id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          target: dormant
+          platforms: linux/amd64,linux/arm64
+          build-args: VERSION=${{ steps.version.outputs.version }}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

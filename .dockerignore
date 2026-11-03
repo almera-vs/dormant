@@ -1,0 +1,10 @@
+**/bin/
+**/obj/
+out/
+artifacts/
+.vs/
+.vscode/
+.idea/
+*.db
+*.db-wal
+*.db-shm

@@ -1,0 +1,58 @@
+# Dormant: read-only, restart-proof usage history for SQL Server.
+# Installed by deploy/systemd/install.sh. See README for the quickstart and docs/threat-model.md for the hardening.
+
+[Unit]
+Description=Dormant usage history for SQL Server
+Documentation=https://github.com/almera-vs/dormant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Dormant tells systemd when it is ready (Microsoft.Extensions.Hosting.Systemd).
+Type=notify
+User=dormant
+Group=dormant
+ExecStart=/usr/local/bin/dormant run -c /etc/dormant/dormant.yaml
+Restart=on-failure
+RestartSec=60
+TimeoutStopSec=60
+
+# Connection strings, as NAME=value lines for the configuration's 'env:' references. Read by systemd as root, so the
+# file can be root-only (0600). Optional: 'file:' references work too.
+EnvironmentFile=-/etc/dormant/dormant.env
+
+# History and reports live here (0700, owned by dormant). The single-file executable unpacks its native libraries
+# here too, since the service has no home directory.
+StateDirectory=dormant
+StateDirectoryMode=0700
+Environment=DOTNET_BUNDLE_EXTRACT_BASE_DIR=/var/lib/dormant/.bundle
+UMask=0077
+
+# Hardening: Dormant only reads its configuration, writes its state directory and connects to SQL Server.
+# ProtectProc=invisible is not set: .NET recognises systemd by reading /proc/<parent>/comm, and with it Dormant could
+# not see that its parent is systemd, would never report ready, and the start would time out.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RemoveIPC=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

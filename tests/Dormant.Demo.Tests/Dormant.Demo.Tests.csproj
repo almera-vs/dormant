@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\demo\Dormant.Demo\Dormant.Demo.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Dormant.Store.Tests\SnapshotBuilder.cs" Link="Shared\SnapshotBuilder.cs" />
+    <None Include="..\..\deploy\sql\*.sql" Link="sql\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

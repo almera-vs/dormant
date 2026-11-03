@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Dormant.Report\Dormant.Report.csproj" />
+    <ProjectReference Include="..\..\src\Dormant.Store\Dormant.Store.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Dormant.Store.Tests\SnapshotBuilder.cs" Link="Shared\SnapshotBuilder.cs" />
+  </ItemGroup>
+
+</Project>

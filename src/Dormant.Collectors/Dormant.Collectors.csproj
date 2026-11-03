@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.SqlClient" />
+    <PackageReference Include="Microsoft.Data.SqlClient.Extensions.Azure" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Dormant.Attribution\Dormant.Attribution.csproj" />
+    <ProjectReference Include="..\Dormant.Core\Dormant.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Dormant.Collectors.Tests" />
+    <InternalsVisibleTo Include="Dormant.Integration" />
+  </ItemGroup>
+
+</Project>

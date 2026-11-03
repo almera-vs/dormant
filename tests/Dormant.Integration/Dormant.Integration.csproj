@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="Testcontainers.MsSql" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Dormant.Collectors\Dormant.Collectors.csproj" />
+    <ProjectReference Include="..\..\demo\Dormant.Demo\Dormant.Demo.csproj" />
+    <ProjectReference Include="..\..\src\Dormant.Report\Dormant.Report.csproj" />
+    <ProjectReference Include="..\..\src\Dormant.Store\Dormant.Store.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Dormant.Store.Tests\StoreInspector.cs" Link="Shared\StoreInspector.cs" />
+    <None Include="..\..\deploy\sql\*.sql" Link="sql\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,75 @@
+# Dormant demo: SQL Server 2022, a small shop application, and Dormant collecting from it.
+#
+#   docker compose -f deploy/demo/docker-compose.yml up -d --build
+#   docker compose -f deploy/demo/docker-compose.yml logs -f setup          # wait for "Wrote 1600 synthetic readings"
+#   docker compose -f deploy/demo/docker-compose.yml exec dormant dormant report -c /etc/dormant/demo.yaml --out /var/lib/dormant/reports/demo.html
+#   docker compose -f deploy/demo/docker-compose.yml cp dormant:/var/lib/dormant/reports/demo.html .
+#   docker compose -f deploy/demo/docker-compose.yml down -v                # removes everything, history included
+#
+# DEMO ONLY. The passwords below protect a throwaway container on your machine; never reuse them. The setup uses sa to
+# build its database; Dormant itself connects as the least-privilege 'dormant' login. Part of the history is
+# SYNTHETIC (200 backfilled days), and the report says so at the top.
+
+name: dormant-demo
+
+x-demo-env: &demo-env
+  DORMANT_DEMO_ADMIN: "Server=sqlserver;User ID=sa;Password=Demo-only-Passw0rd;TrustServerCertificate=true"
+  DORMANT_DEMO_PASSWORD: "Demo-only-Dormant-1"
+
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Demo-only-Passw0rd"
+    # The setup restarts SQL Server once (SHUTDOWN), so that building the demo is not counted as use; Docker brings it back.
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -C -S localhost -U sa -P \"$$MSSQL_SA_PASSWORD\" -Q 'SELECT 1' -b -o /dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 20s
+
+  setup:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      target: demo
+    image: dormant-demo:local
+    entrypoint: ["/usr/local/bin/dormant-demo"]
+    command: ["setup", "-c", "/etc/dormant/demo.yaml"]
+    environment: *demo-env
+    volumes:
+      - ./demo.yaml:/etc/dormant/demo.yaml:ro
+      - state:/var/lib/dormant
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    restart: "no"
+
+  workload:
+    image: dormant-demo:local
+    entrypoint: ["/usr/local/bin/dormant-demo"]
+    command: ["workload", "15"]
+    environment: *demo-env
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  dormant:
+    image: dormant-demo:local
+    command: ["run", "-c", "/etc/dormant/demo.yaml"]
+    environment:
+      DORMANT_DEMO: "Server=sqlserver;User ID=dormant;Password=Demo-only-Dormant-1;TrustServerCertificate=true"
+    volumes:
+      - ./demo.yaml:/etc/dormant/demo.yaml:ro
+      - state:/var/lib/dormant
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+volumes:
+  state:

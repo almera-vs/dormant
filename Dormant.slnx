@@ -1,0 +1,23 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Dormant.Attribution/Dormant.Attribution.csproj" />
+    <Project Path="src/Dormant.Cli/Dormant.Cli.csproj" />
+    <Project Path="src/Dormant.Collectors/Dormant.Collectors.csproj" />
+    <Project Path="src/Dormant.Core/Dormant.Core.csproj" />
+    <Project Path="src/Dormant.Report/Dormant.Report.csproj" />
+    <Project Path="src/Dormant.Store/Dormant.Store.csproj" />
+  </Folder>
+  <Folder Name="/demo/">
+    <Project Path="demo/Dormant.Demo/Dormant.Demo.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Dormant.Attribution.Tests/Dormant.Attribution.Tests.csproj" />
+    <Project Path="tests/Dormant.Cli.Tests/Dormant.Cli.Tests.csproj" />
+    <Project Path="tests/Dormant.Collectors.Tests/Dormant.Collectors.Tests.csproj" />
+    <Project Path="tests/Dormant.Core.Tests/Dormant.Core.Tests.csproj" />
+    <Project Path="tests/Dormant.Demo.Tests/Dormant.Demo.Tests.csproj" />
+    <Project Path="tests/Dormant.Integration/Dormant.Integration.csproj" />
+    <Project Path="tests/Dormant.Report.Tests/Dormant.Report.Tests.csproj" />
+    <Project Path="tests/Dormant.Store.Tests/Dormant.Store.Tests.csproj" />
+  </Folder>
+</Solution>

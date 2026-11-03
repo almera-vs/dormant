@@ -1,0 +1,20 @@
+# Dormant configuration for the docker-compose demo (deploy/demo). The first 200 days of history are SYNTHETIC,
+# backfilled by 'dormant-demo setup' and marked as such in every status, report and export.
+version: 1
+
+store:
+  path: /var/lib/dormant/dormant.db
+
+collection:
+  # The shortest interval Dormant allows, so the real part of the demo history grows quickly.
+  interval: 5m
+
+instances:
+  - name: demo
+    # The least-privilege 'dormant' login, created by the demo setup with deploy/sql/sqlserver-2022-and-later.sql.
+    connection: { env: DORMANT_DEMO }
+    databases: { include: ["DormantDemo"] }
+    query_store: { enabled: true, lookback: 30d }
+
+report:
+  out_dir: /var/lib/dormant/reports

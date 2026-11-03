@@ -1,0 +1,60 @@
+# Dormant configuration.
+#
+# Dormant only reads usage counters and metadata from SQL Server. It never reads row data and never
+# changes anything on the instances it watches. Check this file with:
+#
+#   dormant validate -c dormant.yaml
+#
+# Relative paths below are resolved against the directory that holds this file.
+
+version: 1
+
+store:
+  # Dormant's own local history (SQLite). It holds metadata and counters only.
+  path: dormant.db
+  # How long each level of history is kept. Units: d (days), y (365 days).
+  retention: { raw: 14d, hourly: 90d, daily: 3y }
+
+collection:
+  # How often to take a snapshot. Minimum 5m. Units: s, m, h, d.
+  interval: 15m
+
+instances:
+  - name: erp-prod
+    # The connection string is never written here. Point to an environment variable or a file that holds it.
+    # Examples of what that variable or file can contain:
+    #   Windows (domain) login: Server=sql01.corp.local;Integrated Security=true;Encrypt=true
+    #   SQL login:              Server=sql01.corp.local;User ID=dormant;Password=...;Encrypt=true
+    #   Microsoft Entra ID:     Server=myserver.database.windows.net;Authentication=Active Directory Default;Encrypt=true
+    # Add TrustServerCertificate=true only for test servers with self-signed certificates.
+    connection: { env: DORMANT_ERP_PROD }
+    # connection: { file: /etc/dormant/erp-prod.secret }
+
+    # Database name patterns; * and ? are wildcards, matching ignores case.
+    # When 'exclude' is left out, master, model, msdb and tempdb are excluded.
+    databases: { include: ["*"], exclude: ["master", "model", "msdb", "tempdb"] }
+
+    # Optional: use Query Store, where a database has it switched on, to show which queries last read an object.
+    # Query text is kept only when store_text is true; otherwise only the query hash and procedure name are kept.
+    query_store: { enabled: true, lookback: 30d, store_text: false }
+
+    # Activity inside these windows is recorded but not counted as use (index rebuilds, CHECKDB, ETL scans).
+    # Format: <Mon..Sun|Daily> HH:MM-HH:MM [IANA time zone, default UTC]. An end before the start runs past midnight.
+    # A window must last at least two collection intervals; activity that only partly overlaps a window counts as use.
+    maintenance_windows: ["Sun 01:00-05:00 Europe/Warsaw"]
+
+classification:
+  hot_days: 7         # Hot: read on most days within this many days
+  warm_days: 30       # Warm: read within this many days
+  dormant_days: 180   # Dormant: no reads within this many days, with enough history to be sure
+  min_coverage: 0.9   # share of the window Dormant must actually have observed before saying Cold or Dormant
+
+cost:
+  # Your own prices. While they are 0, reports show sizes and "set your price" instead of money.
+  currency: EUR
+  data_storage_per_gb_month: 0
+  backup_copies: 1                  # how many retained full-backup copies the data lives in
+  backup_storage_per_gb_month: 0
+
+report:
+  out_dir: reports
